@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>雨林會議記錄（單機版）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* 版面：上方會議資訊帶，下方左「逐字稿」右「AI 會議紀錄」雙欄，手機時堆疊 */
+:root{
+  --bg:#f3f5f0; --surface:#ffffff; --sunk:#e8ece3; --line:#d3dacb;
+  --fg:#1d2a22; --muted:#5d6b61; --accent:#2f6b4a; --accent-fg:#ffffff; --accent-soft:#dcebe1;
+  --moss:#7a8f3a; --warn:#a4581b; --danger:#b03a2e; --rec:#c2412d;
+  --f-display:"Noto Serif TC","Songti TC",serif;
+  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#121915; --surface:#19231d; --sunk:#0f1512; --line:#2c3a31;
+  --fg:#e3eae4; --muted:#93a398; --accent:#6fbf8e; --accent-fg:#0d1a12; --accent-soft:#213a2b;
+  --moss:#b3c46a; --warn:#e3a066; --danger:#ef8577; --rec:#ef6a55; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121915; --surface:#19231d; --sunk:#0f1512; --line:#2c3a31;
+  --fg:#e3eae4; --muted:#93a398; --accent:#6fbf8e; --accent-fg:#0d1a12; --accent-soft:#213a2b;
+  --moss:#b3c46a; --warn:#e3a066; --danger:#ef8577; --rec:#ef6a55; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.6}
+.wrap{max-width:1200px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:18px}
+h1,h2{font-family:var(--f-display);margin:0;text-wrap:balance}
+h1{font-size:1.65rem}
+h2{font-size:1.1rem}
+.eyebrow{font-size:.75rem;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 12px;display:inline-flex;align-items:center;gap:6px}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:500}
+button.ghost{border-color:transparent;background:transparent;color:var(--muted);padding:4px 8px}
+button:disabled{opacity:.5;cursor:default}
+input,select,textarea{background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:0}
+textarea{width:100%;resize:vertical}
+
+/* 會議資訊 */
+.head{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:grid;gap:14px}
+.head-top{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between}
+.title-in{font-family:var(--f-display);font-size:1.5rem;font-weight:700;background:transparent;border:1px solid transparent;padding:2px 6px;margin-left:-6px;width:100%}
+.title-in:hover{border-color:var(--line)}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.meta label{display:grid;gap:3px;font-size:.8rem;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{background:var(--accent-soft);color:var(--fg);border-radius:999px;padding:2px 4px 2px 10px;font-size:.85rem;display:inline-flex;align-items:center;gap:2px}
+.chip button{border:0;background:transparent;padding:0 6px;color:var(--muted)}
+.chips input{width:140px;padding:3px 8px;font-size:.85rem}
+.agenda{display:grid;gap:4px;margin:0;padding:0;list-style:none;counter-reset:a}
+.agenda li{display:flex;gap:8px;align-items:center}
+.agenda li::before{counter-increment:a;content:counter(a);font-family:var(--f-mono);font-size:.78rem;color:var(--muted);width:18px}
+.agenda input{flex:1;background:transparent;border-color:transparent;padding:3px 6px}
+.agenda input:hover{border-color:var(--line)}
+
+/* 雙欄 */
+.cols{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:860px){.cols{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;display:grid;min-width:0}
+.panel-h{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)}
+.panel-b{padding:14px 16px;display:grid;gap:12px;min-width:0}
+
+/* 錄音列 */
+.recbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.recbtn{background:var(--rec);color:#fff;border-color:var(--rec);font-weight:500}
+.recbtn.on{animation:pulse 1.6s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--rec) 25%,transparent)}}
+@media (prefers-reduced-motion:reduce){.recbtn.on{animation:none}}
+.dot{width:9px;height:9px;border-radius:50%;background:currentColor}
+.clock{font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--muted)}
+.note{font-size:.82rem;color:var(--muted)}
+.partial{font-style:italic;color:var(--muted);min-height:1.4em;font-size:.9rem}
+
+/* 逐字稿 */
+.tx{display:grid;gap:2px;max-height:520px;overflow-y:auto;padding-right:4px}
+.seg{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:10px;padding:8px 6px;border-radius:8px}
+.seg:hover{background:var(--sunk)}
+.seg .t{font-family:var(--f-mono);font-size:.78rem;color:var(--muted);padding-top:3px;font-variant-numeric:tabular-nums}
+.seg .who{font-weight:700;font-size:.85rem;color:var(--accent)}
+.seg .txt{white-space:pre-wrap;word-break:break-word;outline:none}
+.seg .txt:focus{background:var(--sunk);border-radius:4px}
+.seg .del{opacity:0}
+.seg:hover .del,.seg:focus-within .del{opacity:1}
+.sample-tag{font-size:.7rem;background:var(--warn);color:var(--surface);border-radius:4px;padding:0 5px;margin-left:6px;vertical-align:middle}
+.empty{color:var(--muted);text-align:center;padding:28px 10px;border:1px dashed var(--line);border-radius:10px}
+.add{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px}
+@media (max-width:480px){.add{grid-template-columns:1fr}}
+details summary{cursor:pointer;color:var(--muted);font-size:.88rem}
+
+/* 紀錄 */
+.sec{display:grid;gap:6px}
+.sec h3{margin:0;font-size:.8rem;letter-spacing:.1em;color:var(--muted);font-weight:500;display:flex;align-items:center;gap:8px}
+.sec h3 .n{font-family:var(--f-mono);background:var(--sunk);border-radius:4px;padding:0 6px}
+.sec ul{margin:0;padding-left:1.2em;display:grid;gap:4px}
+.decision li::marker{content:"◆  ";color:var(--moss)}
+.acts{display:grid;gap:6px}
+.act{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;align-items:start}
+.act.done .task{text-decoration:line-through;color:var(--muted)}
+.act input[type=checkbox]{width:17px;height:17px;margin-top:3px;accent-color:var(--accent)}
+.act .meta2{display:flex;flex-wrap:wrap;gap:8px;font-size:.8rem;color:var(--muted);margin-top:2px}
+.act .owner{color:var(--accent);font-weight:500}
+.act .due{color:var(--warn)}
+.q li::marker{content:"?  ";color:var(--warn);font-weight:700}
+.status{font-size:.88rem;color:var(--muted);display:flex;gap:8px;align-items:center}
+.status.err{color:var(--danger)}
+.spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.out{white-space:pre-wrap;font-family:var(--f-mono);font-size:.8rem;max-height:220px;overflow:auto;background:var(--sunk);border-radius:8px;padding:10px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:.88rem;z-index:20}
+.confirm{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:.88rem;background:var(--sunk);padding:8px 10px;border-radius:8px}
+body{margin:0}
+[hidden]{display:none!important}
+</style></head><body>
+
+<div class="wrap">
+  <header class="head">
+    <div class="head-top">
+      <div style="flex:1;min-width:240px;display:grid;gap:2px">
+        <span class="eyebrow">會議記錄</span>
+        <input id="m-title" class="title-in" aria-label="會議名稱">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="btn-new" type="button">＋ 新會議</button>
+      </div>
+    </div>
+    <div id="new-confirm" class="confirm" hidden>
+      開新會議會清空目前內容，建議先匯出。
+      <button id="new-yes" type="button" class="primary">確定清空</button>
+      <button id="new-no" type="button">取消</button>
+    </div>
+    <div class="meta">
+      <label>日期<input id="m-date" type="date"></label>
+      <label>時間<input id="m-time" type="time"></label>
+      <label>地點 / 連結<input id="m-place" placeholder="例如：會議室 B、Google Meet"></label>
+      <label>記錄人<input id="m-recorder" placeholder="你的名字"></label>
+    </div>
+    <div style="display:grid;gap:6px">
+      <span class="eyebrow">與會者</span>
+      <div class="chips" id="people"></div>
+    </div>
+    <div style="display:grid;gap:6px">
+      <span class="eyebrow">議程</span>
+      <ol class="agenda" id="agenda"></ol>
+      <div><button class="ghost" id="add-agenda" type="button">＋ 新增議程</button></div>
+    </div>
+  </header>
+
+  <div class="cols">
+    <section class="panel" aria-labelledby="h-tx">
+      <div class="panel-h">
+        <h2 id="h-tx">逐字稿與筆記</h2>
+        <span class="clock" id="clock">00:00</span>
+      </div>
+      <div class="panel-b">
+        <div class="recbar">
+          <button id="btn-rec" class="recbtn" type="button" hidden><span class="dot"></span><span id="rec-label">開始錄音轉文字</span></button>
+          <label class="note" style="display:flex;gap:6px;align-items:center">發言人
+            <select id="speaker"></select>
+          </label>
+          <button id="btn-clock" class="ghost" type="button">計時歸零</button>
+        </div>
+        <div class="note" id="rec-note">語音轉文字需要在 Chrome / Edge 或 Claude 桌面版開啟。不能錄音時，可以直接在下方打字，或貼上 Teams / Meet 匯出的逐字稿。</div>
+        <div class="partial" id="partial" aria-live="polite"></div>
+        <div class="tx" id="tx"></div>
+        <div class="add">
+          <select id="add-who" aria-label="發言人"></select>
+          <input id="add-text" placeholder="輸入一句發言或筆記，按 Enter 加入">
+          <button id="add-btn" type="button">加入</button>
+        </div>
+        <details>
+          <summary>貼上既有逐字稿</summary>
+          <div style="display:grid;gap:8px;margin-top:8px">
+            <textarea id="paste" rows="5" placeholder="每行一句，可用「名字：內容」標發言人"></textarea>
+            <div><button id="paste-btn" type="button">匯入</button></div>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="h-min">
+      <div class="panel-h">
+        <h2 id="h-min">AI 會議紀錄</h2>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button id="btn-ai" class="primary" type="button">① 複製給 AI 整理</button>
+          <button id="btn-paste-ai" type="button">② 貼上 AI 回覆</button>
+          <button id="btn-stop" type="button" hidden>停止</button>
+        </div>
+      </div>
+      <div class="panel-b">
+        <div class="note">按 ①，到 ChatGPT / Gemini / Claude 網頁貼上送出，再把 AI 的回覆整段複製，按 ② 貼回來。</div>
+        <div id="ai-paste-box" hidden style="display:grid;gap:8px">
+          <textarea id="ai-reply" rows="6" placeholder="把 AI 的整段回覆貼在這裡"></textarea>
+          <div style="display:flex;gap:8px"><button id="ai-apply" class="primary" type="button">套用</button><button id="ai-cancel" type="button">取消</button></div>
+        </div>
+        <div class="status" id="ai-status" aria-live="polite"></div>
+        <div id="minutes"></div>
+        <div style="display:grid;gap:8px;border-top:1px solid var(--line);padding-top:12px">
+          <span class="eyebrow">匯出</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="btn-copy" type="button">複製紀錄（Markdown）</button>
+            <button id="btn-dl" type="button">下載 .txt 檔</button>
+            <button id="btn-show" class="ghost" type="button">顯示文字</button>
+          </div>
+          <div class="out" id="md-out" hidden></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const KEY="rainforest-minutes-local-v1";
+const sample=()=>({
+  title:"雨林計畫 會議",
+  date:new Date().toISOString().slice(0,10),time:"",place:"",recorder:"",
+  people:["主持人"],
+  agenda:[""],
+  segs:[],
+  minutes:null
+});
+let S;
+try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){}
+if(!S||!S.segs)S=sample();
+let saveT;
+function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}},300)}
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt=s=>{s=Math.max(0,Math.floor(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return (h?h+":":"")+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0")};
+function toast(m){const t=$("toast");t.textContent=m;t.hidden=false;clearTimeout(t._t);t._t=setTimeout(()=>t.hidden=true,2200)}
+
+/* 計時 */
+let clockStart=Date.now()-(S.clockOffset||0)*1000;
+const elapsed=()=>(Date.now()-clockStart)/1000;
+setInterval(()=>{$("clock").textContent=fmt(elapsed())},1000);
+$("btn-clock").onclick=()=>{clockStart=Date.now();S.clockOffset=0;save();$("clock").textContent="00:00";toast("計時已歸零")};
+setInterval(()=>{S.clockOffset=elapsed();save()},10000);
+
+/* 會議資訊 */
+[["m-title","title"],["m-date","date"],["m-time","time"],["m-place","place"],["m-recorder","recorder"]].forEach(([id,k])=>{
+  const el=$(id);el.value=S[k]||"";el.oninput=()=>{S[k]=el.value;save()};
+});
+function renderPeople(){
+  const box=$("people");box.innerHTML="";
+  S.people.forEach((p,i)=>{const c=document.createElement("span");c.className="chip";c.innerHTML=esc(p)+'<button type="button" aria-label="移除 '+esc(p)+'">×</button>';
+    c.querySelector("button").onclick=()=>{S.people.splice(i,1);save();renderPeople()};box.append(c)});
+  const inp=document.createElement("input");inp.id="add-person";inp.placeholder="＋ 加人，按 Enter";
+  inp.onkeydown=e=>{if(e.key==="Enter"&&inp.value.trim()){S.people.push(inp.value.trim());save();renderPeople();$("add-person").focus()}};
+  box.append(inp);
+  const opts=S.people.concat(["未指定"]).map(p=>`<option>${esc(p)}</option>`).join("");
+  ["speaker","add-who"].forEach(id=>{const sel=$(id),v=sel.value;sel.innerHTML=opts;if(v&&[...sel.options].some(o=>o.value===v))sel.value=v});
+}
+function renderAgenda(){
+  const ol=$("agenda");ol.innerHTML="";
+  S.agenda.forEach((a,i)=>{const li=document.createElement("li");
+    li.innerHTML=`<input id="ag-${i}" value="${esc(a)}" aria-label="議程 ${i+1}"><button class="ghost" type="button" aria-label="刪除議程">×</button>`;
+    li.querySelector("input").oninput=e=>{S.agenda[i]=e.target.value;save()};
+    li.querySelector("button").onclick=()=>{S.agenda.splice(i,1);save();renderAgenda()};ol.append(li)});
+}
+$("add-agenda").onclick=()=>{S.agenda.push("");save();renderAgenda();$("ag-"+(S.agenda.length-1)).focus()};
+
+/* 逐字稿 */
+function renderTx(){
+  const box=$("tx");
+  if(!S.segs.length){box.innerHTML='<div class="empty">還沒有內容。按「開始錄音轉文字」或在下方輸入第一句。</div>';return}
+  const hasEx=S.segs.some(s=>s.ex);
+  box.innerHTML=(hasEx?'<div class="note" style="display:flex;gap:8px;align-items:center;padding:0 6px 6px">下面是範例內容，正式開會前請清除。<button type="button" class="ghost" id="clr-ex">清除範例</button></div>':"")+
+  S.segs.map((s,i)=>`<div class="seg"><span class="t">${fmt(s.t)}</span><div><div class="who">${esc(s.who)}${s.ex?'<span class="sample-tag">範例</span>':""}</div><div class="txt" contenteditable="true" data-i="${i}">${esc(s.text)}</div></div><button class="ghost del" type="button" data-d="${i}" aria-label="刪除這句">×</button></div>`).join("");
+  box.querySelectorAll(".txt").forEach(el=>el.oninput=()=>{S.segs[+el.dataset.i].text=el.textContent;save()});
+  box.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>{S.segs.splice(+b.dataset.d,1);save();renderTx()});
+  const c=$("clr-ex");if(c)c.onclick=()=>{S.segs=S.segs.filter(s=>!s.ex);if(S.minutes&&S.minutes.ex)S.minutes=null;save();renderTx();renderMinutes()};
+}
+function addSeg(who,text,merge){
+  text=text.trim();if(!text)return;
+  const last=S.segs[S.segs.length-1],t=elapsed();
+  if(merge&&last&&last.who===who&&!last.ex&&t-last.lastT<20){last.text+=text;last.lastT=t}
+  else S.segs.push({t,who,text,lastT:t});
+  save();renderTx();const box=$("tx");box.scrollTop=box.scrollHeight;
+}
+$("add-btn").onclick=()=>{addSeg($("add-who").value,$("add-text").value);$("add-text").value="";$("add-text").focus()};
+$("add-text").onkeydown=e=>{if(e.key==="Enter"&&!e.isComposing){e.preventDefault();$("add-btn").click()}};
+$("paste-btn").onclick=()=>{
+  const lines=$("paste").value.split(/\n+/).map(l=>l.trim()).filter(Boolean);
+  lines.forEach(l=>{const m=l.match(/^(?:\[?[\d:]+\]?\s*)?([^:：]{1,12})[:：]\s*(.+)$/);
+    S.segs.push({t:elapsed(),who:m?m[1].trim():"未指定",text:m?m[2]:l});
+    if(m&&!S.people.includes(m[1].trim()))S.people.push(m[1].trim())});
+  $("paste").value="";save();renderPeople();renderTx();toast("已匯入 "+lines.length+" 句");
+};
+
+/* 新會議 */
+$("btn-new").onclick=()=>{$("new-confirm").hidden=false};
+$("new-no").onclick=()=>{$("new-confirm").hidden=true};
+$("new-yes").onclick=()=>{S={title:"雨林計畫 會議",date:new Date().toISOString().slice(0,10),time:"",place:"",recorder:S.recorder||"",people:S.people,agenda:[""],segs:[],minutes:null};
+  clockStart=Date.now();save();$("new-confirm").hidden=true;init();toast("已開新會議")};
+
+/* AI 紀錄 */
+function renderMinutes(){
+  const m=S.minutes,box=$("minutes");
+  if(!m){box.innerHTML='<div class="empty">會議結束（或中途）按「AI 整理紀錄」，會自動產生摘要、決議、待辦事項和待釐清問題。</div>';return}
+  const list=(arr,cls)=>arr&&arr.length?`<ul class="${cls}">${arr.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:'<div class="note">（無）</div>';
+  box.innerHTML=`<div style="display:grid;gap:16px">
+    ${m.ex?'<div class="note">下面是範例內容。<span class="sample-tag">範例</span></div>':""}
+    <div class="sec"><h3>摘要</h3>${list(m.summary,"")}</div>
+    <div class="sec decision"><h3>決議事項 <span class="n">${(m.decisions||[]).length}</span></h3>${list(m.decisions,"decision")}</div>
+    <div class="sec"><h3>待辦事項 <span class="n">${(m.actions||[]).length}</span></h3><div class="acts">${(m.actions||[]).map((a,i)=>`
+      <label class="act${a.done?" done":""}"><input type="checkbox" id="act-${i}" data-a="${i}"${a.done?" checked":""}><div><div class="task">${esc(a.task)}</div><div class="meta2"><span class="owner">負責：${esc(a.owner||"未指定")}</span><span class="due">期限：${esc(a.due||"未定")}</span></div></div></label>`).join("")||'<div class="note">（無）</div>'}</div></div>
+    <div class="sec q"><h3>待釐清問題</h3>${list(m.questions,"q")}</div>
+    ${m.next?`<div class="sec"><h3>下次會議</h3><div>${esc(m.next)}</div></div>`:""}
+  </div>`;
+  box.querySelectorAll("[data-a]").forEach(c=>c.onchange=()=>{S.minutes.actions[+c.dataset.a].done=c.checked;save();renderMinutes()});
+}
+let aiCtl;
+function setStatus(msg,err,busy){const s=$("ai-status");s.className="status"+(err?" err":"");s.innerHTML=(busy?'<span class="spin"></span>':"")+esc(msg)}
+function buildPrompt(){
+  const segs=S.segs.filter(s=>!s.ex);
+  const use=segs.length?segs:S.segs;
+  if(!use.length){setStatus("還沒有逐字稿，先錄音或輸入內容。",true);return null}
+  const tx=use.map(s=>`[${fmt(s.t)}] ${s.who}：${s.text}`).join("\n").slice(-60000);
+  const prompt=`你是專業的會議記錄員。請根據以下會議逐字稿，用繁體中文（台灣用語）整理成正式會議紀錄。
+會議名稱：${S.title}
+日期：${S.date} ${S.time}
+與會者：${S.people.join("、")}
+議程：${S.agenda.filter(Boolean).join("；")||"未提供"}
+
+逐字稿：
+${tx}
+
+只回覆一個 JSON 物件，格式如下，不要其他文字：
+{"summary":["依議程分點的重點摘要，每點一句"],"decisions":["明確做出的決定"],"actions":[{"task":"要做的事","owner":"負責人，沒提到就填未指定","due":"期限，沒提到就填未定"}],"questions":["還沒有結論、需要後續確認的問題"],"next":"下次會議時間或安排，沒提到就填空字串"}
+規則：只寫逐字稿裡真的出現的內容，不要編造人名、數字或期限。`;
+  return prompt;
+}
+function copyText(text,okMsg){
+  const done=()=>toast(okMsg);
+  const fallback=()=>{const ta=document.createElement("textarea");ta.value=text;document.body.append(ta);ta.select();try{document.execCommand("copy");done()}catch(e){toast("複製失敗")}ta.remove()};
+  if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(text).then(done,fallback);else fallback();
+}
+$("btn-ai").onclick=()=>{const p=buildPrompt();if(!p)return;copyText(p,"已複製！去 ChatGPT / Gemini / Claude 貼上送出");setStatus("已複製提示。AI 回覆後，整段複製回來按 ②。");$("ai-paste-box").hidden=false};
+$("btn-paste-ai").onclick=()=>{$("ai-paste-box").hidden=false;$("ai-reply").focus()};
+$("ai-cancel").onclick=()=>{$("ai-paste-box").hidden=true};
+$("ai-apply").onclick=()=>{
+  const raw=$("ai-reply").value;
+  try{
+    const a=raw.indexOf("{"),b=raw.lastIndexOf("}");
+    if(a<0||b<a)throw 0;
+    const r=JSON.parse(raw.slice(a,b+1));
+    const arr=x=>Array.isArray(x)?x.map(String):[];
+    S.minutes={summary:arr(r.summary),decisions:arr(r.decisions),questions:arr(r.questions),next:String(r.next||""),
+      actions:Array.isArray(r.actions)?r.actions.map(a=>({task:String(a.task||""),owner:String(a.owner||""),due:String(a.due||""),done:false})):[],
+      at:new Date().toLocaleString("zh-TW")};
+    save();renderMinutes();setStatus("已於 "+S.minutes.at+" 套用完成。可以勾選待辦，或匯出。");
+    $("ai-reply").value="";$("ai-paste-box").hidden=true;
+  }catch(e){setStatus("看不懂這段回覆。請確認有複製到 AI 回覆裡 { 開頭、} 結尾的整段內容。",true)}
+};
+
+/* 匯出 */
+function toMD(){
+  const m=S.minutes,L=[];
+  L.push(`# ${S.title}`,"",`- 日期：${S.date} ${S.time}`,`- 地點：${S.place||"—"}`,`- 記錄人：${S.recorder||"—"}`,`- 與會者：${S.people.join("、")}`,"");
+  if(S.agenda.filter(Boolean).length){L.push("## 議程");S.agenda.filter(Boolean).forEach((a,i)=>L.push(`${i+1}. ${a}`));L.push("")}
+  if(m){
+    L.push("## 摘要",...m.summary.map(x=>"- "+x),"","## 決議事項",...(m.decisions.length?m.decisions.map(x=>"- "+x):["- （無）"]),"",
+      "## 待辦事項","| 狀態 | 事項 | 負責人 | 期限 |","|---|---|---|---|",...m.actions.map(a=>`| ${a.done?"✔":"☐"} | ${a.task} | ${a.owner||"未指定"} | ${a.due||"未定"} |`),"",
+      "## 待釐清問題",...(m.questions.length?m.questions.map(x=>"- "+x):["- （無）"]),"");
+    if(m.next)L.push("## 下次會議",m.next,"");
+  }
+  L.push("## 逐字稿",...S.segs.map(s=>`- [${fmt(s.t)}] **${s.who}**：${s.text}`));
+  return L.join("\n");
+}
+$("btn-copy").onclick=async()=>{const md=toMD();
+  try{await navigator.clipboard.writeText(md);toast("已複製，可以貼到 LINE、Word 或 Notion")}
+  catch(e){const o=$("md-out");o.textContent=md;o.hidden=false;const r=document.createRange();r.selectNodeContents(o);const s=getSelection();s.removeAllRanges();s.addRange(r);toast("無法自動複製，已選取文字，請按 Ctrl+C")}};
+$("btn-show").onclick=()=>{const o=$("md-out");o.hidden=!o.hidden;if(!o.hidden)o.textContent=toMD();$("btn-show").textContent=o.hidden?"顯示文字":"隱藏文字"};
+
+function init(){
+  ["m-title","m-date","m-time","m-place","m-recorder"].forEach((id,i)=>$(id).value=S[["title","date","time","place","recorder"][i]]||"");
+  renderPeople();renderAgenda();renderTx();renderMinutes();setStatus("");
+}
+init();
+
+/* 下載 */
+$("btn-dl").onclick=()=>{
+  const blob=new Blob(["﻿"+toMD()],{type:"text/plain;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download=`${S.date||"meeting"}_${(S.title||"會議記錄").replace(/[\\/:*?"<>|]/g,"_")}.txt`;
+  document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000);toast("已下載到「下載」資料夾");
+};
+$("btn-copy").onclick=()=>copyText(toMD(),"已複製，可以貼到 LINE、Word 或 Email");
+
+/* 瀏覽器內建語音辨識（Chrome / Edge，需要網路） */
+(function(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const btn=$("btn-rec"),lab=$("rec-label");
+  if(!SR){$("rec-note").textContent="這個瀏覽器不支援語音轉文字，請改用 Chrome 或 Edge 開啟。現在可以先打字記錄。";return}
+  btn.hidden=false;
+  $("rec-note").textContent="按下錄音後直接說話，文字會自動出現（需要網路）。換人說話時，先切換「發言人」。";
+  let rec=null,want=false,errCount=0;
+  function make(){
+    const r=new SR();r.lang="zh-TW";r.continuous=true;r.interimResults=true;
+    r.onresult=e=>{let interim="";
+      for(let i=e.resultIndex;i<e.results.length;i++){const res=e.results[i];
+        if(res.isFinal){$("partial").textContent="";addSeg($("speaker").value,res[0].transcript,true);errCount=0}
+        else interim+=res[0].transcript}
+      $("partial").textContent=interim?"… "+interim:""};
+    r.onerror=e=>{
+      if(e.error==="not-allowed"||e.error==="service-not-allowed"){want=false;toast("沒有麥克風權限：請按網址列左邊的圖示允許麥克風");}
+      else if(e.error==="network"){errCount++;if(errCount>3){want=false;toast("語音辨識需要網路，請檢查連線")}}
+      else if(e.error==="audio-capture"){want=false;toast("找不到麥克風，請確認有插上")}
+    };
+    r.onend=()=>{if(want){try{r.start()}catch(e){setTimeout(()=>{if(want)try{r.start()}catch(_){}} ,300)}}else setUI(false)};
+    return r;
+  }
+  function setUI(on){btn.classList.toggle("on",on);lab.textContent=on?"錄音中，按此停止":"開始錄音轉文字";if(!on)$("partial").textContent=""}
+  btn.onclick=()=>{
+    if(want){want=false;try{rec&&rec.stop()}catch(e){}setUI(false);return}
+    want=true;errCount=0;rec=make();
+    try{rec.start();setUI(true)}catch(e){want=false;toast("無法開始錄音")}
+  };
+})();
+</script>
+</body></html>
