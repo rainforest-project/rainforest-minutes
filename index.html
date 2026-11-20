@@ -167,6 +167,10 @@ body{margin:0}
           </label>
           <button id="btn-clock" class="ghost" type="button">計時歸零</button>
         </div>
+        <div id="meter-row" class="note" style="display:flex;gap:8px;align-items:center" hidden>收到的音量
+          <div style="flex:1;max-width:240px;height:8px;background:var(--sunk);border-radius:4px;overflow:hidden"><div id="meter" style="height:100%;width:0;background:var(--accent);transition:width .1s"></div></div>
+          <span id="meter-txt"></span>
+        </div>
         <div class="note" id="rec-note">語音轉文字需要在 Chrome / Edge 或 Claude 桌面版開啟。不能錄音時，可以直接在下方打字，或貼上 Teams / Meet 匯出的逐字稿。</div>
         <div class="partial" id="partial" aria-live="polite"></div>
         <div class="tx" id="tx"></div>
@@ -414,20 +418,33 @@ $("btn-copy").onclick=()=>copyText(toMD(),"已複製，可以貼到 LINE、Word 
     streams.push(ds);
     const at=ds.getAudioTracks();
     if(!at.length)throw new Error("noaudio");
-    ac=new AudioContext();const dest=ac.createMediaStreamDestination();
+    const dest=ac.createMediaStreamDestination();
     ac.createMediaStreamSource(new MediaStream(at)).connect(dest);
     try{const mic=await navigator.mediaDevices.getUserMedia({audio:true});streams.push(mic);ac.createMediaStreamSource(mic).connect(dest)}
     catch(e){toast("沒有麥克風權限，只錄電腦聲音")}
+    try{await ac.resume()}catch(e){}
     at[0].onended=()=>{if(want){stopAll();toast("已停止分享畫面，錄音結束")}};
+    startMeter(dest.stream);
     return dest.stream.getAudioTracks()[0];
   }
-  function cleanup(){streams.forEach(s=>s.getTracks().forEach(t=>t.stop()));streams=[];if(ac){try{ac.close()}catch(e){}ac=null}track=null}
+  let meterRAF=0,heard=0,gotText=false,hintT=0;
+  function startMeter(stream){
+    const an=ac.createAnalyser();an.fftSize=512;ac.createMediaStreamSource(stream).connect(an);
+    const buf=new Uint8Array(an.fftSize);$("meter-row").hidden=false;heard=0;gotText=false;
+    const tick=()=>{if(!ac)return;an.getByteTimeDomainData(buf);let m=0;for(const v of buf)m=Math.max(m,Math.abs(v-128));
+      const pct=Math.min(100,m/64*100);$("meter").style.width=pct+"%";if(pct>8)heard++;
+      $("meter-txt").textContent=ac.state!=="running"?"（聲音處理被暫停）":pct>8?"有聲音":"安靜";
+      meterRAF=requestAnimationFrame(tick)};tick();
+    clearTimeout(hintT);hintT=setTimeout(()=>{if(want&&!gotText)toast(heard>30?"有收到聲音但還沒轉出文字，請確認網路，或改用 Edge 試試":"沒有收到聲音：請確認分享時有勾「同時分享系統音訊」，且電腦正在播放聲音")},15000);
+  }
+  function cleanup(){cancelAnimationFrame(meterRAF);clearTimeout(hintT);$("meter-row").hidden=true;streams.forEach(s=>s.getTracks().forEach(t=>t.stop()));streams=[];if(ac){try{ac.close()}catch(e){}ac=null}track=null}
   function stopAll(){want=false;try{rec&&rec.stop()}catch(e){}cleanup();setUI(false)}
   function startRec(){rec=make();if(track)rec.start(track);else rec.start()}
   function make(){
     const r=new SR();r.lang="zh-TW";r.continuous=true;r.interimResults=true;
     r.onresult=e=>{let interim="";
       for(let i=e.resultIndex;i<e.results.length;i++){const res=e.results[i];
+        gotText=true;
         if(res.isFinal){$("partial").textContent="";addSeg($("speaker").value,res[0].transcript,true);errCount=0}
         else interim+=res[0].transcript}
       $("partial").textContent=interim?"… "+interim:""};
@@ -435,6 +452,7 @@ $("btn-copy").onclick=()=>copyText(toMD(),"已複製，可以貼到 LINE、Word 
       if(e.error==="not-allowed"||e.error==="service-not-allowed"){want=false;toast("沒有麥克風權限：請按網址列左邊的圖示允許麥克風");}
       else if(e.error==="network"){errCount++;if(errCount>3){want=false;toast("語音辨識需要網路，請檢查連線")}}
       else if(e.error==="audio-capture"){want=false;toast("找不到麥克風，請確認有插上")}
+      else if(e.error!=="no-speech"&&e.error!=="aborted"){toast("語音辨識錯誤："+e.error)}
     };
     r.onend=()=>{if(want){try{startRec()}catch(e){setTimeout(()=>{if(want)try{startRec()}catch(_){}} ,300)}}else{cleanup();setUI(false)}};
     return r;
@@ -444,6 +462,7 @@ $("btn-copy").onclick=()=>copyText(toMD(),"已複製，可以貼到 LINE、Word 
     if(want){stopAll();return}
     errCount=0;
     if(srcSel.value==="sys"){
+      ac=new AudioContext();ac.resume();
       try{track=await getSysTrack()}
       catch(e){cleanup();
         if(e&&e.message==="noaudio")toast("沒有收到電腦聲音：分享時要選「整個螢幕」並勾選「同時分享系統音訊」");
