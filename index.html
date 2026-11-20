@@ -155,6 +155,12 @@ body{margin:0}
       </div>
       <div class="panel-b">
         <div class="recbar">
+          <label class="note" style="display:flex;gap:6px;align-items:center">錄音來源
+            <select id="src">
+              <option value="sys">電腦聲音＋麥克風（線上會議、戴耳機）</option>
+              <option value="mic">只用麥克風（實體會議）</option>
+            </select>
+          </label>
           <button id="btn-rec" class="recbtn" type="button" hidden><span class="dot"></span><span id="rec-label">開始錄音轉文字</span></button>
           <label class="note" style="display:flex;gap:6px;align-items:center">發言人
             <select id="speaker"></select>
@@ -395,8 +401,29 @@ $("btn-copy").onclick=()=>copyText(toMD(),"已複製，可以貼到 LINE、Word 
   const btn=$("btn-rec"),lab=$("rec-label");
   if(!SR){$("rec-note").textContent="這個瀏覽器不支援語音轉文字，請改用 Chrome 或 Edge 開啟。現在可以先打字記錄。";return}
   btn.hidden=false;
-  $("rec-note").textContent="按下錄音後直接說話，文字會自動出現（需要網路）。換人說話時，先切換「發言人」。";
-  let rec=null,want=false,errCount=0;
+  const NOTE={sys:"錄 Teams 等線上會議：按錄音 → 選「整個螢幕」→ 勾選「同時分享系統音訊」→ 分享。戴耳機也錄得到別人說話，你的麥克風也會一起錄（需要網路）。",
+              mic:"按下錄音後直接說話，文字會自動出現（需要網路）。換人說話時，先切換「發言人」。"};
+  const srcSel=$("src");
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){srcSel.value="mic";srcSel.querySelector('[value=sys]').disabled=true}
+  try{const v=localStorage.getItem(KEY+"-src");if(v&&!srcSel.querySelector(`[value=${v}]`).disabled)srcSel.value=v}catch(e){}
+  const showNote=()=>{$("rec-note").textContent=NOTE[srcSel.value]};showNote();
+  srcSel.onchange=()=>{showNote();try{localStorage.setItem(KEY+"-src",srcSel.value)}catch(e){}};
+  let rec=null,want=false,errCount=0,streams=[],ac=null,track=null;
+  async function getSysTrack(){
+    const ds=await navigator.mediaDevices.getDisplayMedia({video:true,audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},systemAudio:"include"});
+    streams.push(ds);
+    const at=ds.getAudioTracks();
+    if(!at.length)throw new Error("noaudio");
+    ac=new AudioContext();const dest=ac.createMediaStreamDestination();
+    ac.createMediaStreamSource(new MediaStream(at)).connect(dest);
+    try{const mic=await navigator.mediaDevices.getUserMedia({audio:true});streams.push(mic);ac.createMediaStreamSource(mic).connect(dest)}
+    catch(e){toast("沒有麥克風權限，只錄電腦聲音")}
+    at[0].onended=()=>{if(want){stopAll();toast("已停止分享畫面，錄音結束")}};
+    return dest.stream.getAudioTracks()[0];
+  }
+  function cleanup(){streams.forEach(s=>s.getTracks().forEach(t=>t.stop()));streams=[];if(ac){try{ac.close()}catch(e){}ac=null}track=null}
+  function stopAll(){want=false;try{rec&&rec.stop()}catch(e){}cleanup();setUI(false)}
+  function startRec(){rec=make();if(track)rec.start(track);else rec.start()}
   function make(){
     const r=new SR();r.lang="zh-TW";r.continuous=true;r.interimResults=true;
     r.onresult=e=>{let interim="";
@@ -409,14 +436,23 @@ $("btn-copy").onclick=()=>copyText(toMD(),"已複製，可以貼到 LINE、Word 
       else if(e.error==="network"){errCount++;if(errCount>3){want=false;toast("語音辨識需要網路，請檢查連線")}}
       else if(e.error==="audio-capture"){want=false;toast("找不到麥克風，請確認有插上")}
     };
-    r.onend=()=>{if(want){try{r.start()}catch(e){setTimeout(()=>{if(want)try{r.start()}catch(_){}} ,300)}}else setUI(false)};
+    r.onend=()=>{if(want){try{startRec()}catch(e){setTimeout(()=>{if(want)try{startRec()}catch(_){}} ,300)}}else{cleanup();setUI(false)}};
     return r;
   }
-  function setUI(on){btn.classList.toggle("on",on);lab.textContent=on?"錄音中，按此停止":"開始錄音轉文字";if(!on)$("partial").textContent=""}
-  btn.onclick=()=>{
-    if(want){want=false;try{rec&&rec.stop()}catch(e){}setUI(false);return}
-    want=true;errCount=0;rec=make();
-    try{rec.start();setUI(true)}catch(e){want=false;toast("無法開始錄音")}
+  function setUI(on){btn.classList.toggle("on",on);srcSel.disabled=on;lab.textContent=on?"錄音中，按此停止":"開始錄音轉文字";if(!on)$("partial").textContent=""}
+  btn.onclick=async()=>{
+    if(want){stopAll();return}
+    errCount=0;
+    if(srcSel.value==="sys"){
+      try{track=await getSysTrack()}
+      catch(e){cleanup();
+        if(e&&e.message==="noaudio")toast("沒有收到電腦聲音：分享時要選「整個螢幕」並勾選「同時分享系統音訊」");
+        else toast("已取消分享，沒有開始錄音");
+        return}
+    }
+    want=true;
+    try{startRec();setUI(true)}
+    catch(e){want=false;cleanup();toast(srcSel.value==="sys"?"這個瀏覽器不支援錄電腦聲音，請更新 Chrome，或改用「只用麥克風」":"無法開始錄音")}
   };
 })();
 </script>
