@@ -437,11 +437,28 @@ $("btn-copy").onclick=()=>copyText(toMD(),"已複製，可以貼到 LINE、Word 
       meterRAF=requestAnimationFrame(tick)};tick();
     clearTimeout(hintT);hintT=setTimeout(()=>{if(want&&!gotText)toast(heard>30?"有收到聲音但還沒轉出文字，請確認網路，或改用 Edge 試試":"沒有收到聲音：請確認分享時有勾「同時分享系統音訊」，且電腦正在播放聲音")},15000);
   }
-  function cleanup(){cancelAnimationFrame(meterRAF);clearTimeout(hintT);$("meter-row").hidden=true;streams.forEach(s=>s.getTracks().forEach(t=>t.stop()));streams=[];if(ac){try{ac.close()}catch(e){}ac=null}track=null}
+  let running=false,curClone=null,watchdog=0,restartFails=0;
+  function cleanup(){cancelAnimationFrame(meterRAF);clearTimeout(hintT);clearInterval(watchdog);$("meter-row").hidden=true;streams.forEach(s=>s.getTracks().forEach(t=>t.stop()));streams=[];if(curClone){try{curClone.stop()}catch(e){}curClone=null}if(ac){try{ac.close()}catch(e){}ac=null}track=null;running=false}
   function stopAll(){want=false;try{rec&&rec.stop()}catch(e){}cleanup();setUI(false)}
-  function startRec(){rec=make();if(track)rec.start(track);else rec.start()}
+  /* 每一段辨識都給一份新的聲音複本，Chrome 結束一段時會關掉傳進去的那份 */
+  function startRec(){
+    rec=make();
+    if(track){
+      if(track.readyState==="ended")throw new Error("track-ended");
+      if(curClone){try{curClone.stop()}catch(e){}}
+      curClone=track.clone();rec.start(curClone);
+    }else rec.start();
+    running=true;
+  }
+  function tryRestart(){
+    if(!want||running)return;
+    try{startRec();restartFails=0}
+    catch(e){restartFails++;
+      if((e&&e.message==="track-ended")||restartFails>5){stopAll();toast("錄音中斷了（聲音來源已關閉），請再按一次錄音")}}
+  }
   function make(){
     const r=new SR();r.lang="zh-TW";r.continuous=true;r.interimResults=true;
+    r.onstart=()=>{running=true};
     r.onresult=e=>{let interim="";
       for(let i=e.resultIndex;i<e.results.length;i++){const res=e.results[i];
         gotText=true;
@@ -450,11 +467,11 @@ $("btn-copy").onclick=()=>copyText(toMD(),"已複製，可以貼到 LINE、Word 
       $("partial").textContent=interim?"… "+interim:""};
     r.onerror=e=>{
       if(e.error==="not-allowed"||e.error==="service-not-allowed"){want=false;toast("沒有麥克風權限：請按網址列左邊的圖示允許麥克風");}
-      else if(e.error==="network"){errCount++;if(errCount>3){want=false;toast("語音辨識需要網路，請檢查連線")}}
+      else if(e.error==="network"){errCount++;if(errCount>10){want=false;toast("語音辨識連不上網路，錄音已停止，請檢查連線後再按一次")}}
       else if(e.error==="audio-capture"){want=false;toast("找不到麥克風，請確認有插上")}
       else if(e.error!=="no-speech"&&e.error!=="aborted"){toast("語音辨識錯誤："+e.error)}
     };
-    r.onend=()=>{if(want){try{startRec()}catch(e){setTimeout(()=>{if(want)try{startRec()}catch(_){}} ,300)}}else{cleanup();setUI(false)}};
+    r.onend=()=>{if(r!==rec)return;running=false;if(want)setTimeout(tryRestart,150);else{cleanup();setUI(false)}};
     return r;
   }
   function setUI(on){btn.classList.toggle("on",on);srcSel.disabled=on;lab.textContent=on?"錄音中，按此停止":"開始錄音轉文字";if(!on)$("partial").textContent=""}
@@ -469,7 +486,8 @@ $("btn-copy").onclick=()=>copyText(toMD(),"已複製，可以貼到 LINE、Word 
         else toast("已取消分享，沒有開始錄音");
         return}
     }
-    want=true;
+    want=true;restartFails=0;
+    clearInterval(watchdog);watchdog=setInterval(tryRestart,3000);
     try{startRec();setUI(true)}
     catch(e){want=false;cleanup();toast(srcSel.value==="sys"?"這個瀏覽器不支援錄電腦聲音，請更新 Chrome，或改用「只用麥克風」":"無法開始錄音")}
   };
